@@ -1,5 +1,5 @@
 # Father-Map-Editor
-This is a tool to make maps for use with [Father](github.com), it features:
+This is a tool to make maps for use with [Father](https://github.com/The-Sons/Father), it features:
 - A bitmap image editor
 - A collision editor
 - Stamping images
