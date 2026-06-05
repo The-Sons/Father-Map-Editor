@@ -1,5 +1,5 @@
-from PyQt5.QtWidgets import QMainWindow, QLabel, QFileDialog, QAction, QToolBar, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QColorDialog, QSlider, QScrollArea, QGridLayout, QSizePolicy, QInputDialog, QDialog, QListWidget, QVBoxLayout, QPushButton, QLabel, QListWidgetItem, QTreeWidget, QTreeWidgetItem, QApplication
-from PyQt5.QtGui import QPixmap, QPainter, QColor, QImage, QIcon, QFont
+from PyQt5.QtWidgets import QMainWindow, QLabel, QFileDialog, QAction, QToolBar, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QColorDialog, QSlider, QScrollArea, QGridLayout, QSizePolicy, QInputDialog, QDialog, QListWidget, QVBoxLayout, QPushButton, QLabel, QListWidgetItem, QTreeWidget, QTreeWidgetItem, QApplication, QLineEdit
+from PyQt5.QtGui import QPixmap, QPainter, QColor, QImage, QIcon, QFont, QIntValidator
 from PyQt5.QtCore import Qt, QPoint, QRectF, QSize, QTimer
 
 from collections import deque
@@ -262,6 +262,10 @@ class EditorWindow(QMainWindow):
         self.enemy_btn = QPushButton("Edit Enemy List")
         self.enemy_btn.clicked.connect(self.open_enemy_list_dialog)
         toolbar.addWidget(self.enemy_btn)
+
+        self.resize_btn = QPushButton("Resize Map")
+        self.resize_btn.clicked.connect(self.open_resize_dialog)
+        toolbar.addWidget(self.resize_btn)
 
         self.tile_editor_btn = QPushButton("Tile Editor")
         self.tile_editor_btn.setCheckable(True)
@@ -626,6 +630,81 @@ class EditorWindow(QMainWindow):
 
     def log(self, msg):
         self.log_label.setText(f"Latest log: {msg}")
+
+    def open_resize_dialog(self):
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Resize Map")
+        dlg.resize(280, 140)
+        layout = QVBoxLayout()
+
+        from PyQt5.QtGui import QIntValidator
+        width_layout = QHBoxLayout()
+        width_layout.addWidget(QLabel("Width:"))
+        width_input = QLineEdit(str(self.pixmap.width()))
+        width_input.setValidator(QIntValidator(1, 10000, self))
+        width_layout.addWidget(width_input)
+        layout.addLayout(width_layout)
+
+        height_layout = QHBoxLayout()
+        height_layout.addWidget(QLabel("Height:"))
+        height_input = QLineEdit(str(self.pixmap.height()))
+        height_input.setValidator(QIntValidator(1, 10000, self))
+        height_layout.addWidget(height_input)
+        layout.addLayout(height_layout)
+
+        btn_layout = QHBoxLayout()
+        ok_btn = QPushButton("Resize")
+        cancel_btn = QPushButton("Cancel")
+        btn_layout.addWidget(ok_btn)
+        btn_layout.addWidget(cancel_btn)
+        layout.addLayout(btn_layout)
+
+        dlg.setLayout(layout)
+
+        def resize_clicked():
+            if not width_input.hasAcceptableInput() or not height_input.hasAcceptableInput():
+                self.log("Resize failed: width and height must be numbers")
+                return
+            new_width = int(width_input.text())
+            new_height = int(height_input.text())
+            dlg.accept()
+            self.resize_map(new_width, new_height)
+
+        ok_btn.clicked.connect(resize_clicked)
+        cancel_btn.clicked.connect(dlg.reject)
+        dlg.exec_()
+
+    def resize_map(self, new_width, new_height):
+        if new_width <= 0 or new_height <= 0:
+            self.log("Resize failed: dimensions must be positive")
+            return
+        if new_width == self.pixmap.width() and new_height == self.pixmap.height():
+            self.log("Resize skipped: same dimensions")
+            return
+
+        self._push_undo_action('resize')
+
+        old_pixmap = self.pixmap
+        new_pixmap = QPixmap(new_width, new_height)
+        new_pixmap.fill(Qt.white)
+        painter = QPainter(new_pixmap)
+        painter.drawPixmap(0, 0, old_pixmap)
+        painter.end()
+        self.pixmap = new_pixmap
+
+        old_collision = self.collision_layer
+        new_collision = QPixmap(new_width, new_height)
+        new_collision.fill(QColor(255, 255, 255, 0))
+        painter = QPainter(new_collision)
+        painter.drawPixmap(0, 0, old_collision)
+        painter.end()
+        self.collision_layer = new_collision
+
+        self.offset[0] = max(0, min(self.offset[0], max(0, self.pixmap.width() - 1)))
+        self.offset[1] = max(0, min(self.offset[1], max(0, self.pixmap.height() - 1)))
+
+        self.log(f"Resized map to {new_width}x{new_height}")
+        self.update_canvas()
 
     def open_image(self):
         path, _ = QFileDialog.getOpenFileName(self, "Open Map Image", "", "Images (*.png)")
@@ -1210,6 +1289,9 @@ class EditorWindow(QMainWindow):
             state['trigger_rectangles'] = self.trigger_rectangles.copy()
         elif action_type == 'spawn':
             state['spawn_areas'] = self.spawn_areas.copy()
+        elif action_type == 'resize':
+            state['pixmap'] = self.pixmap.copy()
+            state['collision_layer'] = self.collision_layer.copy()
         self.undo_stack.append(state)
         self.redo_stack.clear()
 
@@ -1252,6 +1334,9 @@ class EditorWindow(QMainWindow):
             state['trigger_rectangles'] = self.trigger_rectangles.copy()
         elif action_type == 'spawn':
             state['spawn_areas'] = self.spawn_areas.copy()
+        elif action_type == 'resize':
+            state['pixmap'] = self.pixmap.copy()
+            state['collision_layer'] = self.collision_layer.copy()
         return state
 
     def _restore_state(self, state):
@@ -1272,6 +1357,9 @@ class EditorWindow(QMainWindow):
             self.trigger_rectangles = state['trigger_rectangles']
         elif state['type'] == 'spawn':
             self.spawn_areas = state['spawn_areas']
+        elif state['type'] == 'resize':
+            self.pixmap = state['pixmap']
+            self.collision_layer = state['collision_layer']
 
     def _paint_at(self, widget_pos):
         img_x = int(round(self.offset[0] + (widget_pos.x() - 4) / self.zoom))
