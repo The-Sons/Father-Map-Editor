@@ -20,4 +20,4 @@ Install PyQt5:
 pip install PyQt5
 ```
 ## Running
-Just double click 3.0.py or use cmd if you're really a nerd
+Run with Python
